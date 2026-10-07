@@ -59,7 +59,7 @@ jobs:
           PREVIOUS: ${{ steps.diff.outputs.last }}
         run: |
           set -euo pipefail
-          BODY=$(printf 'Tag Version: %s\nAnterior: %s\nReleased: %s' "$VERSION" "$PREVIOUS" "$RELEASED")
+          BODY=$(printf '@manuela.trujillo @ext-d.agudelo\n\nDeploy Finalizado :ok_exp_qa:\n\n:deploying: Tickets desplegados para pruebas en DEV:\n\n:pushpin: Tag Version: %s' "$VERSION")
           curl -fsS \
             -H "Title: Deploy DEV finalizado" \
             -H "Tags: rocket,white_check_mark" \
