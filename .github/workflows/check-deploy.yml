@@ -1,0 +1,84 @@
+name: Check Travel DEV deploy
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: check-deploy
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fetch current version from DEV
+        id: fetch
+        run: |
+          set -euo pipefail
+          HTML=$(curl -fsSL --max-time 30 https://viajes.dev.rappi.com/)
+          VERSION=$(printf '%s' "$HTML" | grep -oE 'version="[a-f0-9]+"' | head -n1 | sed -E 's/version="([a-f0-9]+)"/\1/')
+          RELEASED=$(printf '%s' "$HTML" | grep -oE 'released="[^"]+"' | head -n1 | sed -E 's/released="([^"]+)"/\1/')
+          if [ -z "$VERSION" ]; then
+            echo "::error::No se pudo extraer version del HTML"
+            exit 1
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "released=$RELEASED" >> "$GITHUB_OUTPUT"
+          echo "Detectado: version=$VERSION released=$RELEASED"
+
+      - name: Compare with last known version
+        id: diff
+        run: |
+          set -euo pipefail
+          CURRENT="${{ steps.fetch.outputs.version }}"
+          if [ -f .last-version ]; then
+            LAST=$(cat .last-version)
+          else
+            LAST=""
+          fi
+          echo "last=$LAST" >> "$GITHUB_OUTPUT"
+          if [ "$CURRENT" != "$LAST" ]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Notify ntfy on change
+        if: steps.diff.outputs.changed == 'true' && steps.diff.outputs.last != ''
+        env:
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+          VERSION: ${{ steps.fetch.outputs.version }}
+          RELEASED: ${{ steps.fetch.outputs.released }}
+          PREVIOUS: ${{ steps.diff.outputs.last }}
+        run: |
+          set -euo pipefail
+          curl -fsS \
+            -H "Title: Deploy DEV finalizado" \
+            -H "Tags: rocket,white_check_mark" \
+            -H "Priority: high" \
+            -H "Click: https://viajes.dev.rappi.com/" \
+            -d "Tag Version: ${VERSION}
+Anterior: ${PREVIOUS}
+Released: ${RELEASED}" \
+            "https://ntfy.sh/${NTFY_TOPIC}"
+
+      - name: Persist new version
+        if: steps.diff.outputs.changed == 'true'
+        env:
+          VERSION: ${{ steps.fetch.outputs.version }}
+          RELEASED: ${{ steps.fetch.outputs.released }}
+        run: |
+          set -euo pipefail
+          echo "$VERSION" > .last-version
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .last-version
+          git commit -m "chore: update to ${VERSION} (${RELEASED})"
+          git push
