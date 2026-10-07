@@ -59,14 +59,13 @@ jobs:
           PREVIOUS: ${{ steps.diff.outputs.last }}
         run: |
           set -euo pipefail
+          BODY=$(printf 'Tag Version: %s\nAnterior: %s\nReleased: %s' "$VERSION" "$PREVIOUS" "$RELEASED")
           curl -fsS \
             -H "Title: Deploy DEV finalizado" \
             -H "Tags: rocket,white_check_mark" \
             -H "Priority: high" \
             -H "Click: https://viajes.dev.rappi.com/" \
-            -d "Tag Version: ${VERSION}
-Anterior: ${PREVIOUS}
-Released: ${RELEASED}" \
+            -d "$BODY" \
             "https://ntfy.sh/${NTFY_TOPIC}"
 
       - name: Persist new version
