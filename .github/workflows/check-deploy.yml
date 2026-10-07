@@ -82,16 +82,22 @@ jobs:
               if [ "$MODE" = "dev" ]; then
                 BODY=$(printf '%s Deploy %s Finalizado\n\n@manuela.trujillo @ext-d.agudelo\n\nDeploy Finalizado :ok_exp_qa:\n\n:deploying: Tickets desplegados para pruebas en DEV:\n\n:pushpin: Tag Version: %s' "$FLAG" "$NAME" "$VERSION")
                 TITLE="$FLAG Deploy DEV finalizado"
+                PRIORITY="4"
+                COMPARE_URL="https://github.com/rappi-inc/ng-rappi-travel/compare/${LAST}...${VERSION}"
+                ACTIONS="view, Abrir DEV, ${URL}, clear=true; view, Ver commits, ${COMPARE_URL}, clear=true; copy, Copiar tag, ${VERSION}"
               else
                 BODY=$(printf '%s Deploy %s Finalizado\n\n:pushpin: Tag Version: %s\nAnterior: %s' "$FLAG" "$NAME" "$VERSION" "$LAST")
                 TITLE="$FLAG Deploy $NAME (PROD)"
+                PRIORITY="5"
+                ACTIONS="view, Abrir sitio, ${URL}, clear=true; copy, Copiar tag, ${VERSION}"
               fi
 
               curl -fsS \
                 -H "Title: $TITLE" \
                 -H "Tags: rocket,white_check_mark" \
-                -H "Priority: high" \
+                -H "Priority: $PRIORITY" \
                 -H "Click: $URL" \
+                -H "Actions: $ACTIONS" \
                 --data-raw "$BODY" \
                 "https://ntfy.sh/${NTFY_TOPIC}"
             fi
