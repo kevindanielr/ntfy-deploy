@@ -1,4 +1,4 @@
-name: Check Travel DEV deploy
+name: Check Travel deploys
 
 on:
   schedule:
@@ -15,69 +15,96 @@ permissions:
 jobs:
   check:
     runs-on: ubuntu-latest
+    env:
+      NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
     steps:
       - uses: actions/checkout@v4
 
-      - name: Fetch current version from DEV
-        id: fetch
+      - name: Check all environments
         run: |
           set -euo pipefail
-          HTML=$(curl -fsSL --max-time 30 https://viajes.dev.rappi.com/)
-          VERSION=$(printf '%s' "$HTML" | grep -oE 'version="[a-f0-9]+"' | head -n1 | sed -E 's/version="([a-f0-9]+)"/\1/')
-          RELEASED=$(printf '%s' "$HTML" | grep -oE 'released="[^"]+"' | head -n1 | sed -E 's/released="([^"]+)"/\1/')
-          if [ -z "$VERSION" ]; then
-            echo "::error::No se pudo extraer version del HTML"
-            exit 1
-          fi
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "released=$RELEASED" >> "$GITHUB_OUTPUT"
-          echo "Detectado: version=$VERSION released=$RELEASED"
 
-      - name: Compare with last known version
-        id: diff
-        run: |
-          set -euo pipefail
-          CURRENT="${{ steps.fetch.outputs.version }}"
-          if [ -f .last-version ]; then
-            LAST=$(cat .last-version)
-          else
-            LAST=""
-          fi
-          echo "last=$LAST" >> "$GITHUB_OUTPUT"
-          if [ "$CURRENT" != "$LAST" ]; then
-            echo "changed=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "changed=false" >> "$GITHUB_OUTPUT"
-          fi
+          # name|flag|url|mode  (mode: dev = ng-rappi-travel-version attr, prod = main.<hash>.js)
+          TARGETS=(
+            "DEV|🧪|https://viajes.dev.rappi.com|dev"
+            "Colombia|🇨🇴|https://travel.rappi.com.co|prod"
+            "Brasil|🇧🇷|https://travel.rappi.com.br|prod"
+            "México|🇲🇽|https://travel.rappi.com.mx|prod"
+            "Argentina|🇦🇷|https://travel.rappi.com.ar|prod"
+            "Perú|🇵🇪|https://travel.rappi.com.pe|prod"
+            "Chile|🇨🇱|https://travel.rappi.cl|prod"
+          )
 
-      - name: Notify ntfy on change
-        if: steps.diff.outputs.changed == 'true' && steps.diff.outputs.last != ''
-        env:
-          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
-          VERSION: ${{ steps.fetch.outputs.version }}
-          RELEASED: ${{ steps.fetch.outputs.released }}
-          PREVIOUS: ${{ steps.diff.outputs.last }}
-        run: |
-          set -euo pipefail
-          BODY=$(printf '@manuela.trujillo @ext-d.agudelo\n\nDeploy Finalizado :ok_exp_qa:\n\n:deploying: Tickets desplegados para pruebas en DEV:\n\n:pushpin: Tag Version: %s' "$VERSION")
-          curl -fsS \
-            -H "Title: Deploy DEV finalizado" \
-            -H "Tags: rocket,white_check_mark" \
-            -H "Priority: high" \
-            -H "Click: https://viajes.dev.rappi.com/" \
-            --data-raw "$BODY" \
-            "https://ntfy.sh/${NTFY_TOPIC}"
+          mkdir -p state
+          CHANGED=0
 
-      - name: Persist new version
-        if: steps.diff.outputs.changed == 'true'
-        env:
-          VERSION: ${{ steps.fetch.outputs.version }}
-          RELEASED: ${{ steps.fetch.outputs.released }}
+          for entry in "${TARGETS[@]}"; do
+            IFS='|' read -r NAME FLAG URL MODE <<<"$entry"
+            SLUG=$(printf '%s' "$NAME" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9' '-' | sed 's/-*$//')
+            STATE_FILE="state/${SLUG}.version"
+
+            HTML=$(curl -fsSL --max-time 30 "$URL" || true)
+            if [ -z "$HTML" ]; then
+              echo "::warning::$NAME: no HTML fetched from $URL"
+              continue
+            fi
+
+            if [ "$MODE" = "dev" ]; then
+              VERSION=$(printf '%s' "$HTML" | grep -oE 'ng-rappi-travel-version="[a-f0-9]+"' | head -n1 | sed -E 's/.*="([a-f0-9]+)".*/\1/')
+              RELEASED=$(printf '%s' "$HTML" | grep -oE 'released="[^"]+"' | head -n1 | sed -E 's/released="([^"]+)"/\1/')
+            else
+              VERSION=$(printf '%s' "$HTML" | grep -oE 'main\.[a-f0-9]{16,}\.js' | head -n1 | sed -E 's/main\.([a-f0-9]+)\.js/\1/')
+              RELEASED=""
+            fi
+
+            if [ -z "$VERSION" ]; then
+              echo "::warning::$NAME: could not extract version from $URL"
+              continue
+            fi
+
+            if [ -f "$STATE_FILE" ]; then
+              LAST=$(cat "$STATE_FILE")
+            else
+              LAST=""
+            fi
+
+            echo "$NAME ($URL): current=$VERSION last=$LAST"
+
+            if [ "$VERSION" != "$LAST" ]; then
+              echo "$VERSION" > "$STATE_FILE"
+              CHANGED=1
+
+              if [ -z "$LAST" ]; then
+                echo "  → baseline primed, skipping notification"
+                continue
+              fi
+
+              if [ "$MODE" = "dev" ]; then
+                BODY=$(printf '%s Deploy %s Finalizado\n\n@manuela.trujillo @ext-d.agudelo\n\nDeploy Finalizado :ok_exp_qa:\n\n:deploying: Tickets desplegados para pruebas en DEV:\n\n:pushpin: Tag Version: %s' "$FLAG" "$NAME" "$VERSION")
+                TITLE="$FLAG Deploy DEV finalizado"
+              else
+                BODY=$(printf '%s Deploy %s Finalizado\n\n:pushpin: Tag Version: %s\nAnterior: %s' "$FLAG" "$NAME" "$VERSION" "$LAST")
+                TITLE="$FLAG Deploy $NAME (PROD)"
+              fi
+
+              curl -fsS \
+                -H "Title: $TITLE" \
+                -H "Tags: rocket,white_check_mark" \
+                -H "Priority: high" \
+                -H "Click: $URL" \
+                --data-raw "$BODY" \
+                "https://ntfy.sh/${NTFY_TOPIC}"
+            fi
+          done
+
+          echo "CHANGED=$CHANGED" >> "$GITHUB_ENV"
+
+      - name: Persist state
+        if: env.CHANGED == '1'
         run: |
           set -euo pipefail
-          echo "$VERSION" > .last-version
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add .last-version
-          git commit -m "chore: update to ${VERSION} (${RELEASED})"
+          git add state/
+          git commit -m "chore: update version state"
           git push
