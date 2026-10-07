@@ -96,7 +96,6 @@ jobs:
                 -H "Title: $TITLE" \
                 -H "Tags: rocket,white_check_mark" \
                 -H "Priority: $PRIORITY" \
-                -H "Click: $URL" \
                 -H "Actions: $ACTIONS" \
                 --data-raw "$BODY" \
                 "https://ntfy.sh/${NTFY_TOPIC}"
