@@ -65,7 +65,7 @@ jobs:
             -H "Tags: rocket,white_check_mark" \
             -H "Priority: high" \
             -H "Click: https://viajes.dev.rappi.com/" \
-            -d "$BODY" \
+            --data-raw "$BODY" \
             "https://ntfy.sh/${NTFY_TOPIC}"
 
       - name: Persist new version
