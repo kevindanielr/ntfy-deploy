@@ -27,6 +27,7 @@ jobs:
           # name|flag|url|mode  (mode: dev = ng-rappi-travel-version attr, prod = main.<hash>.js)
           TARGETS=(
             "DEV|🧪|https://viajes.dev.rappi.com|dev"
+            "Staging|🧰|https://viajes-staging.rappi.com|staging"
             "Colombia|🇨🇴|https://travel.rappi.com.co|prod"
             "Brasil|🇧🇷|https://travel.rappi.com.br|prod"
             "México|🇲🇽|https://travel.rappi.com.mx|prod"
@@ -49,7 +50,7 @@ jobs:
               continue
             fi
 
-            if [ "$MODE" = "dev" ]; then
+            if [ "$MODE" = "dev" ] || [ "$MODE" = "staging" ]; then
               VERSION=$(printf '%s' "$HTML" | grep -oE 'ng-rappi-travel-version="[a-f0-9]+"' | head -n1 | sed -E 's/.*="([a-f0-9]+)".*/\1/')
               RELEASED=$(printf '%s' "$HTML" | grep -oE 'released="[^"]+"' | head -n1 | sed -E 's/released="([^"]+)"/\1/')
             else
@@ -79,18 +80,27 @@ jobs:
                 continue
               fi
 
-              if [ "$MODE" = "dev" ]; then
-                BODY=$(printf '%s Deploy %s Finalizado\n\n@manuela.trujillo @ext-d.agudelo\n\nDeploy Finalizado :ok_exp_qa:\n\n:deploying: Tickets desplegados para pruebas en DEV:\n\n:pushpin: Tag Version: %s' "$FLAG" "$NAME" "$VERSION")
-                TITLE="$FLAG Deploy DEV finalizado"
-                PRIORITY="4"
-                COMPARE_URL="https://github.com/rappi-inc/ng-rappi-travel/compare/${LAST}...${VERSION}"
-                ACTIONS="view, Abrir DEV, ${URL}, clear=true; view, Ver commits, ${COMPARE_URL}, clear=true; copy, Copiar tag, ${VERSION}"
-              else
-                BODY=$(printf '%s Deploy %s Finalizado\n\n:pushpin: Tag Version: %s\nAnterior: %s' "$FLAG" "$NAME" "$VERSION" "$LAST")
-                TITLE="$FLAG Deploy $NAME (PROD)"
-                PRIORITY="5"
-                ACTIONS="view, Abrir sitio, ${URL}, clear=true; copy, Copiar tag, ${VERSION}"
-              fi
+              COMPARE_URL="https://github.com/rappi-inc/ng-rappi-travel/compare/${LAST}...${VERSION}"
+              case "$MODE" in
+                dev)
+                  BODY=$(printf '%s Deploy %s Finalizado\n\n@manuela.trujillo @ext-d.agudelo\n\nDeploy Finalizado :ok_exp_qa:\n\n:deploying: Tickets desplegados para pruebas en DEV:\n\n:pushpin: Tag Version: %s' "$FLAG" "$NAME" "$VERSION")
+                  TITLE="$FLAG Deploy DEV finalizado"
+                  PRIORITY="4"
+                  ACTIONS="view, Abrir DEV, ${URL}, clear=true; view, Ver commits, ${COMPARE_URL}, clear=true; copy, Copiar tag, ${VERSION}"
+                  ;;
+                staging)
+                  BODY=$(printf '%s Deploy %s Finalizado\n\n:deploying: Tickets desplegados en STAGING:\n\n:pushpin: Tag Version: %s\nAnterior: %s' "$FLAG" "$NAME" "$VERSION" "$LAST")
+                  TITLE="$FLAG Deploy STAGING finalizado"
+                  PRIORITY="4"
+                  ACTIONS="view, Abrir Staging, ${URL}, clear=true; view, Ver commits, ${COMPARE_URL}, clear=true; copy, Copiar tag, ${VERSION}"
+                  ;;
+                *)
+                  BODY=$(printf '%s Deploy %s Finalizado\n\n:pushpin: Tag Version: %s\nAnterior: %s' "$FLAG" "$NAME" "$VERSION" "$LAST")
+                  TITLE="$FLAG Deploy $NAME (PROD)"
+                  PRIORITY="5"
+                  ACTIONS="view, Abrir sitio, ${URL}, clear=true; copy, Copiar tag, ${VERSION}"
+                  ;;
+              esac
 
               curl -fsS \
                 -H "Title: $TITLE" \
