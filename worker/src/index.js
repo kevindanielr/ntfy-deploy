@@ -25,11 +25,14 @@ function slugify(name) {
 
 function extractVersion(html, mode) {
   if (mode === 'dev' || mode === 'staging') {
-    const m = html.match(/ng-rappi-travel-version="([a-f0-9]+)"/);
-    return m ? m[1] : null;
+    const v = html.match(/ng-rappi-travel-version="([a-f0-9]+)"/);
+    const r = html.match(/released="([^"]+)"/);
+    if (!v) return null;
+    return { version: v[1], released: r ? r[1] : '', key: `${v[1]}|${r ? r[1] : ''}` };
   }
   const m = html.match(/main\.([a-f0-9]{16,})\.js/);
-  return m ? m[1] : null;
+  if (!m) return null;
+  return { version: m[1], released: '', key: m[1] };
 }
 
 async function ghGet(path, token) {
@@ -117,18 +120,22 @@ async function checkOne(target, env, log) {
   const htmlRes = await fetch(target.url, { cf: { cacheTtl: 0, cacheEverything: false } });
   if (!htmlRes.ok) { log.push(`${target.name}: HTTP ${htmlRes.status}`); return; }
   const html = await htmlRes.text();
-  const version = extractVersion(html, target.mode);
-  if (!version) { log.push(`${target.name}: no version extracted`); return; }
+  const info = extractVersion(html, target.mode);
+  if (!info) { log.push(`${target.name}: no version extracted`); return; }
   const state = await ghGet(path, env.GITHUB_TOKEN);
-  log.push(`${target.name}: current=${version} last=${state.content || '(empty)'}`);
-  if (version === state.content) return;
-  if (state.content) {
-    await notifyNtfy(target, version, state.content, env.NTFY_TOPIC);
+  const previousVersion = state.content ? state.content.split('|')[0] : '';
+  const legacyFormat = state.content && !state.content.includes('|') && target.mode !== 'prod';
+  log.push(`${target.name}: current=${info.key} last=${state.content || '(empty)'}`);
+  if (info.key === state.content) return;
+  if (legacyFormat && previousVersion === info.version) {
+    log.push(`  → migrating state to new format (no notify)`);
+  } else if (state.content) {
+    await notifyNtfy(target, info.version, previousVersion, env.NTFY_TOPIC);
     log.push(`  → notified`);
   } else {
     log.push(`  → baseline primed`);
   }
-  await ghPut(path, version, state.sha, `chore: ${slug} ${version}`, env.GITHUB_TOKEN);
+  await ghPut(path, info.key, state.sha, `chore: ${slug} ${info.version}`, env.GITHUB_TOKEN);
 }
 
 async function checkAll(env) {
